@@ -1,2 +1,2 @@
 # wav-util
-Simple utility program to view and edit wav file header data
+Simple command line utility program to view and edit wav file header data
