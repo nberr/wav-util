@@ -1,7 +1,12 @@
 /*
- * wav-look: a simple command line utility to view wav files
+ * wav-util: a simple command line utility to view and edit wav file header data
  * Nicholas Berriochoa
  * 14 February 2021
+ * 
+ * changelog
+ * 30 October 2024
+ * - renamed things from wav-look to wav-util
+ * - removed extra code related to assignment specifications
  */
 #include <stdio.h> /* io functions */
 #include <stdint.h> /* uint types */
@@ -19,12 +24,7 @@
 
 #define BITS_PER_BYTE 8
 
-/* used for programming part B */
-#define D_START 100
-#define D_END 30
-
-const char *sample_name  = "sample.wav";
-const char *silence_name = "silence.wav"; 
+const char *modified_name  = "modified.wav";
 
 /* RIFF definitions */
 const char *RIFF_ID = "RIFF";
@@ -69,7 +69,7 @@ const size_t HEADER_SIZE = sizeof(wav_header);
  * is in fact a wav file. If it is not, the program
  * will terminate. Some wav files can contain extra chunks
  * such as JUNK but this program will only accept wav files
- * with the 3 chunks we discussed in lecture
+ * with the 3 chunks.
  */
 int verify_file(wav_header *input) {
    int error = 0;
@@ -125,6 +125,8 @@ void print(wav_header *input) {
    printf("Block align\t%d\n",     input->f.blockAlign);
    printf("Bits per sample\t%d\n", input->f.bitsPerSample);
 
+   // TODO: print other chunks if available. ex: JUNK
+
    printf("+------------+\n");
    printf("| DATA CHUNK |\n");
    printf("+------------+\n");
@@ -133,18 +135,11 @@ void print(wav_header *input) {
 }
 
 /*
- * This function creates a new wav file and writes the original header
- * to that file unless the name is "sample.wav". in that case, the header
- * is modified for programming Part A
+ * This function creates a new wav file and writes the modified header
+ * to the new file.
  */
 FILE* create_file (const char *name, wav_header header) {
    FILE* f = NULL;
-
-   /* modifiy the header for Programming part A */
-   if (strcmp(name, "sample.wav") == 0) {
-      /* this will cause the playback to be at 50% speed */
-      header.f.sampleRate /= 2;
-   }
 
    /* create the file */
    if (!(f = fopen(name, "w"))) {
@@ -163,44 +158,10 @@ FILE* create_file (const char *name, wav_header header) {
    return f;
 }
 
-/* 
- * this function will silence a portion of the data for Programming Part B 
- */
-void silence_section(uint8_t *data, int block, wav_header header) {
-   
-   /* 
-    * calculate the start and end to silence 
-    * this function will only work if the number of samples is less than or equal to
-    * the max value of a 32bit unsigned integer 
-    */
-   uint32_t num_samples = header.d.chunkSize / (header.f.bitsPerSample / BITS_PER_BYTE);
-   uint32_t dstart = (num_samples / 2) + (num_samples / D_START);
-   uint32_t dend   = (num_samples / 2) + (num_samples / D_END);
-
-   if (DEBUG) {
-      fprintf(stderr, "dstart: %d\n", dstart);
-      fprintf(stderr, "dend:   %d\n", dend);
-   }
-
-   /* step through the block of audio data and silence the portion as needed */
-   int i;
-   for (i = 0; i < BLOCK; i++) {
-      int pos = (block * BLOCK) + i;
-
-      if ((pos >= dstart) && (pos <= dend)) {
-         data[i] = 0;
-
-         if (DEBUG) {
-            fprintf(stderr, "pos: %d\n", pos);
-         }
-      }
-   }
-}
-
 /*
  * this function writes the audio data to the newly created wav files
  */
-void write_data(wav_header header, FILE* original, FILE* sample, FILE* silence) {
+void write_data(wav_header header, FILE* original, FILE* modified) {
    size_t bytes;
 
    /* allocate data to read in the audio data portion of the file */
@@ -210,46 +171,26 @@ void write_data(wav_header header, FILE* original, FILE* sample, FILE* silence) 
       exit(EXIT_FAILURE);
    }
 
-   /* allocate another block to manipulate the audio data */
-   uint8_t *silence_data = (uint8_t *)calloc(BLOCK, sizeof(uint8_t));
-   if (silence_data == NULL) {
-      fprintf(stderr, "Silence block allocation failed\n");
-      exit(EXIT_FAILURE);
-   }
-
    /* read a chunk of data from the original file */
    size_t data_bytes;
    int num_blocks = 0;
    while ((bytes = fread(data, sizeof(uint8_t), BLOCK, original)) > 0) {
       num_blocks++;
-      /* modify the data and write to the new files */
-      memcpy(silence_data, data, BLOCK);
-      silence_section(silence_data, num_blocks, header);
 
-      if (DEBUG) {
-         fprintf(stderr, "Bytes read: %zu\n", bytes);
-      }
-
-      /* 
-       * write original audio data to the sample wav file 
-       * The original audio data can be used because changing the sample
-       * rate is handled in the header of the file
-       */
-      if ((data_bytes = fwrite(data, sizeof(uint8_t), bytes, sample)) != bytes) {
-         fprintf(stderr, "Writing audio data to sample.wav failed. bytes written: %zu\n", data_bytes);
-         exit(EXIT_FAILURE);
-      }
-
-      /* write the modified audio data to the silence wav file */
-      if ((data_bytes = fwrite(silence_data, sizeof(uint8_t), bytes, silence)) != bytes) {
-         fprintf(stderr, "Writing audio data to silence.wav failed. bytes written: %zu\n", data_bytes);
+   #if (DEBUG)
+      fprintf(stderr, "Bytes read: %zu\n", bytes);
+   #endif
+      
+      /* write original audio data to the modified wav file */
+      if ((data_bytes = fwrite(data, sizeof(uint8_t), bytes, modified)) != bytes) {
+         fprintf(stderr, "Writing audio data to modified.wav failed. bytes written: %zu\n", data_bytes);
          exit(EXIT_FAILURE);
       }
    }
 
-   if (DEBUG) {
+   #if (DEBUG)
       fprintf(stderr, "%d blocks read in\n", num_blocks);
-   }
+   #endif
 }
 
 int main(int argc, char **argv) {
@@ -258,11 +199,11 @@ int main(int argc, char **argv) {
 
    /* check command line usage */
    if (argc == 1) {
-      printf("please provide a file: ./wav-look <filename|path>\n");
+      printf("please provide a file: ./wav-util <filename|path>\n");
       exit(EXIT_FAILURE);
    }
    else if (argc > 2) {
-      printf("too many arguments: ./wav-look <filename|path>\n");
+      printf("too many arguments: ./wav-util <filename|path>\n");
       exit(EXIT_FAILURE);
    }
 
@@ -288,17 +229,17 @@ int main(int argc, char **argv) {
    /* print the header information */
    print(&header);
 
-   /* create the sample and silence files */
-   FILE *sample = create_file(sample_name,   header);
-   FILE *silence = create_file(silence_name, header);
+   // TODO: edit header here
+
+   /* create the modified file with the altered header data */
+   FILE *modified = create_file(modified_name, header);
 
    /* write the audio data to the new files */
-   write_data(header, original, sample, silence);
+   write_data(header, original, modified);
 
-   /* close the new files */
-   fclose(sample);
-   fclose(silence);
-
+   /* close the modified file */
+   fclose(modified);
+   
    /* close the original file */
    fclose(original);
 
